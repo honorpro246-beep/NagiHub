@@ -1,5 +1,5 @@
--- NagiHub V1.0.2 | Float Precision Patched
--- Fixed 32-bit multiplication to prevent Luau float64 precision loss.
+-- NagiHub V1.0.21 | Full Build + BK's Hub + Ethos Hub
+-- All protections intact. No truncation.
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
@@ -46,10 +46,6 @@ end)()
 
 local SALT = "NagiHub_V103_Salt_8x92mf"
 
--- FIXED 32-BIT MULTIPLICATION
--- Luau uses float64, which loses precision above 2^53.
--- (h1 * 0x01000193) exceeds 2^53, corrupting the lower bits before modulo.
--- We split into 16-bit halves to stay under 2^53 and preserve exact 32-bit math.
 local function mul32(a, b)
     local a_hi = math.floor(a / 65536)
     local a_lo = a % 65536
@@ -136,7 +132,9 @@ local AllowedPrefixes = {
     "https://raw.githubusercontent.com/honorpro246-beep/Aimbot/",
     "https://cloak-and-script.lovable.app/api/",
     "https://raw.githubusercontent.com/EdgeIY/infiniteyield/",
-    "https://raw.githubusercontent.com/infyiff/backup/"
+    "https://raw.githubusercontent.com/infyiff/backup/",
+    "https://api.luarmor.net/files/v4/loaders/",
+    "https://raw.githubusercontent.com/TKyoka/AetherHub/"
 }
 
 local function isAllowedUrl(url)
@@ -218,7 +216,7 @@ local function BuildMainUI()
     Title.Size = UDim2.new(1, -100, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "NagiHub V1.0.2 | " .. accessText
+    Title.Text = "NagiHub V1.0.21 | " .. accessText
     Title.TextColor3 = Color3.fromRGB(0, 255, 120)
     Title.TextSize = 14
     Title.Font = Enum.Font.Code
@@ -450,9 +448,13 @@ local function BuildMainUI()
         elseif tabName == "Arsenal" then
             addLabel("ARSENAL", Color3.fromRGB(255, 100, 100))
             addScriptButton("PulseHub", "https://pulsehub.gg/arsenal", 2)
+            addScriptButton("Ethos Hub", "https://raw.githubusercontent.com/TKyoka/AetherHub/main/Arsenal", 1)
         elseif tabName == "Da Hood" then
             addLabel("DA HOOD", Color3.fromRGB(255, 100, 100))
             addScriptButton("PulseHub", "https://pulsehub.gg/dahood", 2)
+        elseif tabName == "Steal a Egg" then
+            addLabel("STEAL A EGG", Color3.fromRGB(255, 220, 80))
+            addScriptButton("BK's Hub", "https://api.luarmor.net/files/v4/loaders/9ee4edde227ac85f50872bf9e4226508.lua", 2)
         elseif tabName == "Grow Garden" then
             addLabel("GROW A GARDEN", Color3.fromRGB(255, 100, 100))
             addScriptButton("PulseHub", "https://pulsehub.gg/growagarden", 2)
@@ -489,6 +491,7 @@ local function BuildMainUI()
     createTab("Brookhaven")
     createTab("Arsenal")
     createTab("Da Hood")
+    createTab("Steal a Egg")
     createTab("Grow Garden")
     createTab("Universal")
     createTab("More Games")
@@ -575,7 +578,7 @@ local KeyTitle = Instance.new("TextLabel")
 KeyTitle.Size = UDim2.new(1, -20, 0, 35)
 KeyTitle.Position = UDim2.new(0, 10, 0, 10)
 KeyTitle.BackgroundTransparency = 1
-KeyTitle.Text = "NagiHub V1.0.2 | Активация"
+KeyTitle.Text = "NagiHub V1.0.21 | Активация"
 KeyTitle.TextColor3 = Color3.fromRGB(0, 255, 120)
 KeyTitle.TextSize = 18
 KeyTitle.Font = Enum.Font.Code
