@@ -1,44 +1,95 @@
--- NagiHub V1.0.1 | Final Links Edition
--- Keys hashed only. URLs plain. Delta-safe.
+-- NagiHub V1.0.2 | Float Precision Patched
+-- Fixed 32-bit multiplication to prevent Luau float64 precision loss.
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 
 local waitFn = (task and task.wait) or wait
 local spawnFn = (task and task.spawn) or spawn
-local httpGet = game.HttpGet
+local delayFn = (task and task.delay) or delay or function(t, f) spawnFn(function() waitFn(t) f() end) end
 
-pcall(function() math.randomseed(tick()) end)
+local bxor = (bit32 and bit32.bxor) or (bit and bit.bxor) or function(a, b)
+    local res = 0
+    for i = 0, 31 do
+        local p = 2^i
+        local aa, bb = math.floor(a / p) % 2, math.floor(b / p) % 2
+        if aa ~= bb then res = res + p end
+    end
+    return res
+end
+
+local Janitor = {}
+Janitor.__index = Janitor
+function Janitor.new() return setmetatable({_tasks = {}}, Janitor) end
+function Janitor:Add(task)
+    if type(task) == "table" and task.Disconnect then table.insert(self._tasks, task)
+    elseif type(task) == "function" then table.insert(self._tasks, task)
+    elseif typeof(task) == "Instance" then table.insert(self._tasks, function() if task and task.Destroy then task:Destroy() end end) end
+    return task
+end
+function Janitor:Cleanup()
+    for _, t in ipairs(self._tasks) do
+        if type(t) == "function" then pcall(t)
+        elseif type(t) == "table" and t.Disconnect then pcall(t.Disconnect, t) end
+    end
+    self._tasks = {}
+end
+
+local AccessState = (function()
+    local _level = 1
+    return {
+        get = function() return _level end,
+        set = function(l) _level = l end,
+        has = function(req) return _level >= req end
+    }
+end)()
+
+local SALT = "NagiHub_V103_Salt_8x92mf"
+
+-- FIXED 32-BIT MULTIPLICATION
+-- Luau uses float64, which loses precision above 2^53.
+-- (h1 * 0x01000193) exceeds 2^53, corrupting the lower bits before modulo.
+-- We split into 16-bit halves to stay under 2^53 and preserve exact 32-bit math.
+local function mul32(a, b)
+    local a_hi = math.floor(a / 65536)
+    local a_lo = a % 65536
+    local term1 = ((a_hi * b) % 65536) * 65536
+    local term2 = a_lo * b
+    return (term1 + term2) % 4294967296
+end
 
 local function _H(s)
-    local h1, h2 = 0x811c9dc5, 0x1b873593
-    for i = 1, #s do
-        local b = string.byte(s, i)
-        h1 = (h1 * 31 + b) % 4294967296
-        h2 = (h2 * 37 + b) % 4294967296
+    local h1, h2 = 0x811c9dc5, 0x84222325
+    local combined = SALT .. s .. SALT
+    for i = 1, #combined do
+        local b = string.byte(combined, i)
+        h1 = mul32(h1, 0x01000193)
+        h1 = bxor(h1, b)
+        h2 = mul32(h2, 0x01000193)
+        h2 = bxor(h2, (b * 31) % 256)
     end
     return string.format("%08x%08x", h1, h2)
 end
 
 local _K = {
-    ["4608a5a01733a05a"] = 3, 
-    ["8b6b61832dd32cc1"] = 3, 
-    ["59a15cfe73ae4158"] = 2, ["06e2a2b49bd2fdda"] = 2, ["945b86ea542edb4c"] = 2,
-    ["61e21060829d2112"] = 2, ["60b4914c8a1a99be"] = 2, ["248b93f6b18d29d0"] = 2,
-    ["d1ccd9acd9b1e652"] = 2, ["5f45bde2920dc3c4"] = 2, ["2cc0728cc067ed56"] = 2,
-    ["730d8278606576a2"] = 2, ["ef75caeeef6c1248"] = 2, ["9cb710a41790ceca"] = 2,
-    ["2a2ff4dacfecac3c"] = 2, ["d0c41904ec320af6"] = 2, ["3df7b9709e445f1a"] = 2,
-    ["ba6001e62d4afac0"] = 2, ["67a1479c556fb742"] = 2, ["86b90c526336b93c"] = 2,
-    ["9bae4ffc2a10f36e"] = 2, ["08e1f068dc234792"] = 2
+    ["39a038760b064300"] = 3, ["d2a7228b10bd193f"] = 3, 
+    ["3b56e6142db2012e"] = 2, ["b7be832a652d9ad8"] = 2, ["c7edf788897e0436"] = 2,
+    ["f12131e64f50af0c"] = 2, ["0c53cc8a77207f84"] = 2, ["7269d28cb0e00216"] = 2,
+    ["7a7d3ab291d0de78"] = 2, ["83e58208e1d75976"] = 2, ["e3f965eeab488118"] = 2,
+    ["d23926eadd3f4850"] = 2, ["3b764a54c71aadbe"] = 2, ["2118324aff540ac8"] = 2,
+    ["b5669438561cee46"] = 2, ["6b90a14edee96168"] = 2, ["0781f6725ca1f9e0"] = 2,
+    ["ff58e81c511e7f56"] = 2, ["f6301aa2deb14208"] = 2, ["515931d0c704c2d6"] = 2,
+    ["64f5a9fe8bcfdd08"] = 2, ["c1fdc44a3cf952b0"] = 2
 }
 
-local CurrentAccess = 1
 local failCount = 0
 local lockUntil = 0
 
 pcall(function()
-    local root = game.CoreGui
-    if gethui then root = gethui() end
+    local root = (type(gethui) == "function" and gethui()) 
+                 or game:FindService("CoreGui") 
+                 or (Players.LocalPlayer and Players.LocalPlayer:FindFirstChild("PlayerGui"))
+    if not root then return end
     for _, v in ipairs(root:GetChildren()) do
         if type(v.Name) == "string" and (v.Name:sub(1, 7) == "NagiHub" or v.Name:sub(1, 6) == "RatHub") then
             v:Destroy()
@@ -47,7 +98,12 @@ pcall(function()
 end)
 
 local Gui = Instance.new("ScreenGui")
-Gui.Name = "NagiHub_" .. tostring(math.random(100000, 999999))
+local function randomName()
+    local s = ""
+    for i = 1, 12 do s = s .. string.char(math.random(97, 122)) end
+    return s
+end
+Gui.Name = randomName()
 Gui.ResetOnSpawn = false
 Gui.DisplayOrder = 999999
 Gui.IgnoreGuiInset = true
@@ -63,77 +119,86 @@ if type(gethui) == "function" then
     if ok then trySetParent(hui) end
 end
 if Gui.Parent == nil then trySetParent(game:FindService("CoreGui")) end
-if Gui.Parent == nil then pcall(function() trySetParent(Players.LocalPlayer:WaitForChild("PlayerGui")) end) end
 
-local function hasAccess(requiredAccess)
-    return CurrentAccess >= requiredAccess
+if Gui.Parent == nil and Players.LocalPlayer then
+    local pgui = Players.LocalPlayer:WaitForChild("PlayerGui", 5)
+    if pgui then trySetParent(pgui) end
+    if Gui.Parent == nil then trySetParent(game:FindService("CoreGui")) end
 end
 
-local AllowedHosts = {
-    ["raw.githubusercontent.com"] = true,
-    ["rawscripts.net"] = true,
-    ["pulsehub.gg"] = true,
-    ["cloak-and-script.lovable.app"] = true
+local AllowedPrefixes = {
+    "https://raw.githubusercontent.com/bloxfruitsnokey/Redz/",
+    "https://raw.githubusercontent.com/UCT-hub/main/",
+    "https://raw.githubusercontent.com/Slayerzxz/slayerhub/",
+    "https://rawscripts.net/raw/Universal-Script-KitK4t-Hub-",
+    "https://raw.githubusercontent.com/yelelode/UNO/",
+    "https://pulsehub.gg/",
+    "https://raw.githubusercontent.com/honorpro246-beep/Aimbot/",
+    "https://cloak-and-script.lovable.app/api/",
+    "https://raw.githubusercontent.com/EdgeIY/infiniteyield/",
+    "https://raw.githubusercontent.com/infyiff/backup/"
 }
 
-local function getHost(url)
-    return url:match("^https?://([^/]+)")
+local function isAllowedUrl(url)
+    for _, prefix in ipairs(AllowedPrefixes) do
+        if url:sub(1, #prefix) == prefix then return true end
+    end
+    return false
 end
 
 local function safeHttpGet(url)
-    local code = ""
-    local ok, res = pcall(function() return httpGet(game, url, true) end)
-    if ok and type(res) == "string" and #res > 0 then
-        code = res
-    end
-    if code == "" then
-        local req = request or (syn and syn.request) or (http and http.request)
-        if req then
-            local ok2, res2 = pcall(function()
-                return req({ Url = url, Method = "GET" })
-            end)
-            if ok2 and res2 and res2.Success and res2.Body then
-                code = res2.Body
-            elseif ok2 and res2 and res2.StatusCode == 200 and res2.Body then
-                code = res2.Body
-            end
+    local ok, res = pcall(function() return game:HttpGet(url, true) end)
+    if ok and type(res) == "string" then return res end
+    
+    local req = request or http_request or (syn and syn.request) or (fluxus and fluxus.request) or (http and http.request)
+    if req then
+        local ok2, res2 = pcall(req, { Url = url, Method = "GET" })
+        if ok2 and res2 then
+            if type(res2) == "string" then return res2 end
+            if type(res2) == "table" and res2.Body then return res2.Body end
         end
     end
-    return code
+    return ""
 end
 
 local function fetchAndRun(url)
-    local host = getHost(url)
-    if not host or not AllowedHosts[host] then error("blocked host") end
+    if not isAllowedUrl(url) then error("blocked url") end
     
     local code = safeHttpGet(url)
-    
     if not code or #code == 0 then error("empty response") end
+    
+    if code:sub(1, 9) == "404: Not " or code:sub(1, 4) == "404:" or code:find("Repository not found") then 
+        error("404 text") 
+    end
     
     local head = code:sub(1, 32):lower()
     if head:find("<!doctype html", 1, true) or head:find("<html", 1, true) then 
-        error("404 html page") 
+        error("html page") 
     end
     
     if not loadstring then error("no loadstring") end
-    
     local fn, err = loadstring(code)
     if not fn then error("syntax: " .. tostring(err)) end
+    
+    if setfenv then pcall(setfenv, fn, setmetatable({}, {__index = getfenv and getfenv() or _G})) end
     
     local ok, runErr = pcall(fn)
     if not ok then error("run: " .. tostring(runErr)) end
 end
 
 local function BuildMainUI()
+    local maid = Janitor.new()
+    
     local Main = Instance.new("Frame")
     Main.Size = UDim2.new(0, 450, 0, 280)
     Main.Position = UDim2.new(0.5, -225, 0.5, -140)
     Main.BackgroundColor3 = Color3.fromRGB(5, 5, 5)
     Main.BorderSizePixel = 0
     Main.Active = true
+    Main.ClipsDescendants = true
     Main.Visible = true
     Main.Parent = Gui
-    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+    maid:Add(Instance.new("UICorner", Main)).CornerRadius = UDim.new(0, 10)
     local mainStroke = Instance.new("UIStroke", Main)
     mainStroke.Color = Color3.fromRGB(0, 255, 120)
     mainStroke.Thickness = 1.2
@@ -143,17 +208,17 @@ local function BuildMainUI()
     Top.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     Top.BorderSizePixel = 0
     Top.Parent = Main
-    Instance.new("UICorner", Top).CornerRadius = UDim.new(0, 10)
+    maid:Add(Instance.new("UICorner", Top)).CornerRadius = UDim.new(0, 10)
 
     local accessText = "FREE"
-    if CurrentAccess == 2 then accessText = "PREMIUM"
-    elseif CurrentAccess == 3 then accessText = "OWNER" end
+    if AccessState.get() == 2 then accessText = "PREMIUM"
+    elseif AccessState.get() == 3 then accessText = "OWNER" end
 
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, -100, 1, 0)
     Title.Position = UDim2.new(0, 10, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "NagiHub V1.0.1 | " .. accessText
+    Title.Text = "NagiHub V1.0.2 | " .. accessText
     Title.TextColor3 = Color3.fromRGB(0, 255, 120)
     Title.TextSize = 14
     Title.Font = Enum.Font.Code
@@ -169,7 +234,7 @@ local function BuildMainUI()
     HideBtn.TextSize = 16
     HideBtn.Font = Enum.Font.Code
     HideBtn.Parent = Top
-    Instance.new("UICorner", HideBtn).CornerRadius = UDim.new(0, 6)
+    maid:Add(Instance.new("UICorner", HideBtn)).CornerRadius = UDim.new(0, 6)
 
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 26, 0, 26)
@@ -180,7 +245,7 @@ local function BuildMainUI()
     CloseBtn.TextSize = 16
     CloseBtn.Font = Enum.Font.Code
     CloseBtn.Parent = Top
-    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+    maid:Add(Instance.new("UICorner", CloseBtn)).CornerRadius = UDim.new(0, 6)
 
     local Mini = Instance.new("TextButton")
     Mini.Size = UDim2.new(0, 50, 0, 50)
@@ -193,22 +258,19 @@ local function BuildMainUI()
     Mini.Font = Enum.Font.Code
     Mini.Visible = false
     Mini.Parent = Gui
-    Instance.new("UICorner", Mini).CornerRadius = UDim.new(0, 12)
+    maid:Add(Instance.new("UICorner", Mini)).CornerRadius = UDim.new(0, 12)
     local miniStroke = Instance.new("UIStroke", Mini)
     miniStroke.Color = Color3.fromRGB(0, 255, 120)
     miniStroke.Thickness = 1.5
 
-    HideBtn.MouseButton1Click:Connect(function()
+    maid:Add(HideBtn.MouseButton1Click:Connect(function()
         Main.Visible = false
         Mini.Visible = true
-    end)
-    Mini.MouseButton1Click:Connect(function()
-        Main.Visible = true
-        Mini.Visible = false
-    end)
-    CloseBtn.MouseButton1Click:Connect(function()
+    end))
+    maid:Add(CloseBtn.MouseButton1Click:Connect(function()
+        maid:Cleanup()
         Gui:Destroy()
-    end)
+    end))
 
     local TabBar = Instance.new("Frame")
     TabBar.Size = UDim2.new(1, -10, 0, 35)
@@ -216,7 +278,7 @@ local function BuildMainUI()
     TabBar.BackgroundColor3 = Color3.fromRGB(8, 8, 8)
     TabBar.BorderSizePixel = 0
     TabBar.Parent = Main
-    Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0, 8)
+    maid:Add(Instance.new("UICorner", TabBar)).CornerRadius = UDim.new(0, 8)
 
     local TabScroll = Instance.new("ScrollingFrame")
     TabScroll.Size = UDim2.new(1, -10, 1, -10)
@@ -231,7 +293,10 @@ local function BuildMainUI()
     TabLayout.Padding = UDim.new(0, 4)
     TabLayout.SortOrder = Enum.SortOrder.LayoutOrder
     TabLayout.Parent = TabScroll
-    pcall(function() TabScroll.AutomaticCanvasSize = Enum.AutomaticSize.X end)
+
+    maid:Add(TabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        TabScroll.CanvasSize = UDim2.new(0, TabLayout.AbsoluteContentSize.X + 10, 0, 0)
+    end))
 
     local ContentArea = Instance.new("Frame")
     ContentArea.Size = UDim2.new(1, -10, 1, -75)
@@ -239,7 +304,7 @@ local function BuildMainUI()
     ContentArea.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
     ContentArea.BorderSizePixel = 0
     ContentArea.Parent = Main
-    Instance.new("UICorner", ContentArea).CornerRadius = UDim.new(0, 8)
+    maid:Add(Instance.new("UICorner", ContentArea)).CornerRadius = UDim.new(0, 8)
 
     local ContentScroll = Instance.new("ScrollingFrame")
     ContentScroll.Size = UDim2.new(1, -10, 1, -10)
@@ -253,10 +318,16 @@ local function BuildMainUI()
     ContentLayout.Padding = UDim.new(0, 4)
     ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
     ContentLayout.Parent = ContentScroll
-    pcall(function() ContentScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y end)
+
+    maid:Add(ContentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        ContentScroll.CanvasSize = UDim2.new(0, 0, 0, ContentLayout.AbsoluteContentSize.Y + 10)
+    end))
 
     local Tabs = {}
     local order = 0
+    local tabCount = 0
+    
+    local currentToken = { cancelled = false }
 
     local function addLabel(text, color)
         local lbl = Instance.new("TextLabel")
@@ -285,27 +356,33 @@ local function BuildMainUI()
         btn.LayoutOrder = order
         order = order + 1
         btn.Parent = ContentScroll
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        maid:Add(Instance.new("UICorner", btn)).CornerRadius = UDim.new(0, 4)
 
-        if not hasAccess(requiredAccess) then
+        if not AccessState.has(requiredAccess) then
             btn.BackgroundColor3 = Color3.fromRGB(40, 20, 20)
             btn.TextColor3 = Color3.fromRGB(150, 100, 100)
             btn.Text = "🔒 " .. name
-            btn.MouseButton1Click:Connect(function()
+            maid:Add(btn.MouseButton1Click:Connect(function()
+                if not btn or not btn.Parent then return end
                 btn.Text = "  NO ACCESS"
                 waitFn(1)
-                btn.Text = "🔒 " .. name
-            end)
+                if btn and btn.Parent then btn.Text = "🔒 " .. name end
+            end))
             return
         end
 
         local busy = false
-        btn.MouseButton1Click:Connect(function()
+        maid:Add(btn.MouseButton1Click:Connect(function()
             if busy then return end
             busy = true
             btn.Text = "  LOADING..."
             btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            
+            local myToken = currentToken
+            
             spawnFn(function()
+                if myToken.cancelled then return end
+                
                 local errMsg = nil
                 local ok = pcall(function()
                     local status, err = pcall(fetchAndRun, url)
@@ -315,35 +392,37 @@ local function BuildMainUI()
                     end
                 end)
                 
+                if myToken.cancelled or not btn or not btn.Parent then return end
+
                 if ok then
                     btn.Text = "  EXECUTED"
                     btn.BackgroundColor3 = Color3.fromRGB(10, 40, 20)
                     btn.TextColor3 = Color3.fromRGB(100, 255, 150)
                 else
                     local errStr = tostring(errMsg or "unknown")
-                    if errStr:find("404") or errStr:find("html") then
-                        btn.Text = "  ERR: 404"
-                    elseif errStr:find("syntax") then
-                        btn.Text = "  ERR: SYNTAX"
-                    elseif errStr:find("run") then
-                        btn.Text = "  ERR: CRASH"
-                    else
-                        btn.Text = "  ERR: FETCH"
-                    end
+                    if errStr:find("404") then btn.Text = "  ERR: 404"
+                    elseif errStr:find("syntax") then btn.Text = "  ERR: SYNTAX"
+                    elseif errStr:find("run") then btn.Text = "  ERR: CRASH"
+                    else btn.Text = "  ERR: FETCH" end
                     btn.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
                     btn.TextColor3 = Color3.fromRGB(255, 80, 80)
                     warn("[NagiHub] Error running " .. name .. ": " .. errStr)
                 end
                 waitFn(2)
-                btn.Text = "  " .. name
-                btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-                btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+                if not myToken.cancelled and btn and btn.Parent then
+                    btn.Text = "  " .. name
+                    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+                    btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+                end
                 busy = false
             end)
-        end)
+        end))
     end
 
     local function switchTab(tabName)
+        currentToken.cancelled = true
+        currentToken = { cancelled = false }
+        
         order = 0
         for _, v in ipairs(ContentScroll:GetChildren()) do
             if v:IsA("TextLabel") or v:IsA("TextButton") then v:Destroy() end
@@ -398,11 +477,12 @@ local function BuildMainUI()
         btn.TextSize = 12
         btn.Font = Enum.Font.Code
         btn.AutoButtonColor = false
-        btn.LayoutOrder = #Tabs
+        tabCount = tabCount + 1
+        btn.LayoutOrder = tabCount
         btn.Parent = TabScroll
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        maid:Add(Instance.new("UICorner", btn)).CornerRadius = UDim.new(0, 4)
         Tabs[name] = btn
-        btn.MouseButton1Click:Connect(function() switchTab(name) end)
+        maid:Add(btn.MouseButton1Click:Connect(function() switchTab(name) end))
     end
 
     createTab("Blox Fruits")
@@ -414,50 +494,69 @@ local function BuildMainUI()
     createTab("More Games")
     switchTab("Blox Fruits")
 
-    local dragging, dragStart, startPos = false, nil, nil
-    local miniDragging, miniDragStart, miniStartPos = false, nil, nil
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    local mainActiveInput = nil
 
-    Top.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    local miniDragging = false
+    local miniDragStart = nil
+    local miniActiveInput = nil
+
+    maid:Add(Top.InputBegan:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and not mainActiveInput then
+            mainActiveInput = input
             dragging = true
             dragStart = input.Position
             startPos = Main.Position
         end
-    end)
-    Mini.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    end))
+
+    maid:Add(Mini.InputBegan:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and not miniActiveInput then
+            miniActiveInput = input
             miniDragging = true
             miniDragStart = input.Position
-            miniStartPos = Mini.Position
         end
-    end)
+    end))
 
-    local changedConn = UIS.InputChanged:Connect(function(input)
+    maid:Add(UIS.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            if dragging and dragStart and startPos then
+            if dragging and input == mainActiveInput and dragStart and startPos then
                 local delta = input.Position - dragStart
                 Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
             end
-            if miniDragging and miniDragStart and miniStartPos then
+            if miniDragging and input == miniActiveInput and miniDragStart then
                 local delta = input.Position - miniDragStart
-                Mini.Position = UDim2.new(miniStartPos.X.Scale, miniStartPos.X.Offset + delta.X, miniStartPos.Y.Scale, miniStartPos.Y.Offset + delta.Y)
+                Mini.Position = UDim2.new(0.03, delta.X, 0.5, -25 + delta.Y)
             end
         end
-    end)
+    end))
 
-    local endedConn = UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    maid:Add(UIS.InputEnded:Connect(function(input)
+        if input == mainActiveInput then
+            mainActiveInput = nil
             dragging = false
+        end
+        if input == miniActiveInput then
+            local dist = (input.Position - miniDragStart).Magnitude
+            if dist < 10 then
+                Main.Visible = true
+                Mini.Visible = false
+            end
+            miniActiveInput = nil
             miniDragging = false
         end
-    end)
+    end))
+    
+    maid:Add(UIS.InputCancelled:Connect(function(input)
+        if input == mainActiveInput then mainActiveInput = nil; dragging = false end
+        if input == miniActiveInput then miniActiveInput = nil; miniDragging = false end
+    end))
 
-    Gui.AncestryChanged:Connect(function(_, newParent)
-        if newParent == nil then
-            pcall(function() changedConn:Disconnect() end)
-            pcall(function() endedConn:Disconnect() end)
-        end
-    end)
+    maid:Add(Gui.AncestryChanged:Connect(function(_, newParent)
+        if newParent == nil then maid:Cleanup() end
+    end))
 end
 
 local KeyFrame = Instance.new("Frame")
@@ -476,7 +575,7 @@ local KeyTitle = Instance.new("TextLabel")
 KeyTitle.Size = UDim2.new(1, -20, 0, 35)
 KeyTitle.Position = UDim2.new(0, 10, 0, 10)
 KeyTitle.BackgroundTransparency = 1
-KeyTitle.Text = "NagiHub V1.0.1 | Активация"
+KeyTitle.Text = "NagiHub V1.0.2 | Активация"
 KeyTitle.TextColor3 = Color3.fromRGB(0, 255, 120)
 KeyTitle.TextSize = 18
 KeyTitle.Font = Enum.Font.Code
@@ -538,40 +637,53 @@ FreeBtn.Parent = KeyFrame
 Instance.new("UICorner", FreeBtn).CornerRadius = UDim.new(0, 6)
 
 local function trim(s)
-    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+    if type(s) ~= "string" then return "" end
+    s = s:gsub("^[%s\194\160\226\128\139\227\128\128]+", "")
+    s = s:gsub("[%s\194\160\226\128\139\227\128\128]+$", "")
+    s = s:gsub("\r", "")
+    return s
 end
 
+local isValidating = false
+
 local function doValidate()
-    if tick() < lockUntil then
+    if isValidating then return end
+    isValidating = true
+    
+    if os.clock() < lockUntil then
         StatusLabel.Text = "Слишком много попыток"
         StatusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+        isValidating = false
         return
     end
     local key = trim(KeyInput.Text)
     local hash = _H(key)
     
     if _K[hash] then
-        CurrentAccess = _K[hash]
+        AccessState.set(_K[hash])
         failCount = 0
         local accessText = "FREE"
-        if CurrentAccess == 2 then accessText = "PREMIUM"
-        elseif CurrentAccess == 3 then accessText = "OWNER" end
+        if AccessState.get() == 2 then accessText = "PREMIUM"
+        elseif AccessState.get() == 3 then accessText = "OWNER" end
         
         StatusLabel.Text = "✓ Доступ получен: " .. accessText
         StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
-        waitFn(0.7)
-        KeyFrame:Destroy()
-        BuildMainUI()
+        
+        delayFn(0.7, function()
+            KeyFrame:Destroy()
+            BuildMainUI()
+        end)
     else
         failCount = failCount + 1
         if failCount >= 5 then
-            lockUntil = tick() + 15
+            lockUntil = os.clock() + 15
             failCount = 0
             StatusLabel.Text = "Заблокировано на 15 секунд"
         else
             StatusLabel.Text = "✗ Неверный ключ"
         end
         StatusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+        isValidating = false
     end
 end
 
@@ -581,15 +693,21 @@ KeyInput.FocusLost:Connect(function(enterPressed)
 end)
 
 FreeBtn.MouseButton1Click:Connect(function()
-    if tick() < lockUntil then
+    if isValidating then return end
+    isValidating = true
+    
+    if os.clock() < lockUntil then
         StatusLabel.Text = "Слишком много попыток"
         StatusLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
+        isValidating = false
         return
     end
-    CurrentAccess = 1
+    AccessState.set(1)
     StatusLabel.Text = "Free доступ активирован"
     StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
-    waitFn(0.7)
-    KeyFrame:Destroy()
-    BuildMainUI()
+    
+    delayFn(0.7, function()
+        KeyFrame:Destroy()
+        BuildMainUI()
+    end)
 end)
